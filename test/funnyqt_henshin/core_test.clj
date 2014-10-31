@@ -13,6 +13,10 @@
                     funnyqt-henshin.core-test.examples.bank
                     bank)
 
+(henshin-to-funnyqt-file "examples/bank/" "bank.henshin"
+                         'funnyqt-henshin.core-test.examples.bank
+                         "generated/bank.clj")
+
 (emf/load-ecore-resource "examples/bank/bank.ecore")
 
 (defn bank-create-sample-model []

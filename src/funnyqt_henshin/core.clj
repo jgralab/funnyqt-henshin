@@ -1,5 +1,6 @@
 (ns funnyqt-henshin.core
   (:require [clojure.java.io  :as io]
+            [clojure.pprint   :as pp]
             [clojure.set      :as set]
             [funnyqt.generic  :as g]
             [funnyqt.pmatch   :as pm]
@@ -14,6 +15,11 @@
            (org.eclipse.emf.henshin.model Action GraphElement)))
 
 ;;# The code
+
+(def ^{:dynamic true
+       :doc "True if we should print the FunnyQT rules to a file instead of
+generating for immediate use."}
+  *print-to-file* false)
 
 (def ^{:dynamic true
        :doc "A symbol denoting a rule's model parameter."}
@@ -324,18 +330,23 @@
 
 (defn ^:private transform-rule [rule name is-multi]
   (binding [*isomorphic-matching* (emf/eget rule :injectiveMatching)]
-    `(ip/rule ~name
-              ~(let [opts {:pattern-expansion-context :emf}]
-                 (if is-multi
-                   (assoc opts :forall true)
-                   opts))
-              [~*the-model-sym* ~@*rule-param-syms*]
-              ~(graph-to-pattern-vec (emf/eget rule :lhs))
-              ~(generate-rule-body rule))))
+    `(~(if *print-to-file*
+         `ip/defrule
+         `ip/rule)
+      ~name
+       ~(let [opts {:pattern-expansion-context :emf}]
+          (if is-multi
+            (assoc opts :forall true)
+            opts))
+       [~*the-model-sym* ~@*rule-param-syms*]
+       ~(graph-to-pattern-vec (emf/eget rule :lhs))
+       ~(generate-rule-body rule))))
 
 (poly/declare-polyfn transform-unit
                      "Returns a vector [name val] that can be interned in some ns.
-  `name` is a symbol (possibly with metadata), val is a function/pattern/rule."
+  `name` is a symbol (possibly with metadata), val is a function/pattern/rule.
+  If *print-to-file* is true, returns a standard definition form that can be
+  printed to a file."
                      [unit]
                      (println "Don't yet know how to handle unit" unit))
 
@@ -355,7 +366,9 @@
                  (symbol name)
                  (u/errorf "Rule without name: %s" rule))
           name (with-meta name {:arglists `([~*the-model-sym* ~@*rule-param-syms*])})]
-      [name (transform-rule rule name false)])))
+      (if *print-to-file*
+        (transform-rule rule name false)
+        [name (transform-rule rule name false)]))))
 
 ;;## Visualization for debugging
 
@@ -383,19 +396,34 @@
 
 ;;## Main
 
-(defmacro henshin-to-funnyqt [base-path henshin-model target-ns-sym alias]
+(defn henshin-to-funnyqt-file [base-path henshin-model target-ns-sym file]
   (let [hrs (henshin-resource-set base-path)
         hm (module hrs henshin-model)
         mm (resource hrs "bank.ecore")
         hr (resource hrs "bank.henshin")
         top-units (emf/eget hm :rules)]
-    #_(viz/print-model hrs "/home/horn/bank.pdf" :include (viz-includes hm hrs))
-    #_(viz/print-model hrs "/home/horn/bank-createAccount.pdf"
-                       :include (viz-includes-rule hm "createAccount" hrs))
-    #_(viz/print-model hrs "/home/horn/bank-deleteAllAccounts.pdf"
-                       :include (viz-includes-rule hm "deleteAllAccounts" hrs))
-    #_(viz/print-model hrs "/home/horn/bank-multi-rule.pdf"
-                       :include (viz-includes-rule hm "" hrs))
+    (binding [*print-to-file* true
+              *out* (io/writer file)]
+      (pp/with-pprint-dispatch pp/code-dispatch
+        (pp/pprint `(ns ~target-ns-sym))
+        (doseq [unit top-units
+                :let [def-form (transform-unit unit)]]
+          (newline)
+          (pp/pprint def-form)))
+      (flush))))
+
+(defmacro henshin-to-funnyqt
+  "Transforms a Henshin model to a namespace with FunnyQT rules.
+  `base-path` is the base path of the HenshinResourceSet.  `henshin-model` is
+  the relative path to the Henshing model.  `target-ns-sym` is the name of the
+  target FunnyQT namespace in which the rules should be generated.  `alias` is
+  a symbol being the alias to the target namespace which is then required."
+  [base-path henshin-model target-ns-sym alias]
+  (let [hrs (henshin-resource-set base-path)
+        hm (module hrs henshin-model)
+        mm (resource hrs "bank.ecore")
+        hr (resource hrs "bank.henshin")
+        top-units (emf/eget hm :rules)]
     `(do
        (create-ns '~target-ns-sym)
        ~@(for [unit top-units
