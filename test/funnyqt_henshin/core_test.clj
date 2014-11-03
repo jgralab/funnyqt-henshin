@@ -3,7 +3,8 @@
             [funnyqt-henshin.core :refer :all]
             [funnyqt.query :as q]
             [funnyqt.emf :as emf]
-            [funnyqt.visualization :as viz]))
+            [funnyqt.visualization :as viz]
+            [funnyqt.utils :as u]))
 
 ;;# Tests
 
@@ -80,8 +81,19 @@
 
 (emf/load-ecore-resource "examples/sierpinski/sierpinski.ecore")
 
-#_(deftest test-sierpinski
-    (let [m (emf/load-resource "examples/sierpinski/sierpinski-start.xmi")]
-      (viz/print-model m :gtk :exclude (emf/eallcontents m 'VertexContainer))
-      (sierpinski/AddTriangle m)
-      (viz/print-model m :gtk :exclude (emf/eallcontents m 'VertexContainer))))
+(deftest test-sierpinski
+  (let [m (emf/load-resource "examples/sierpinski/sierpinski-start.xmi")
+        expected-vertex-count (fn [no-iterations]
+                                (long (* 3/2 (inc (long (Math/pow 3 no-iterations))))))
+        expected-edge-count (fn [no-iterations]
+                              (long (Math/pow 3 (inc no-iterations))))
+        no-iterations 11]
+    #_(viz/print-model m :gtk :exclude (emf/eallcontents m 'VertexContainer))
+    (u/timing "Running %F where no-iterations is %s.\nFinished in %T."
+              (dotimes [i no-iterations]
+                (sierpinski/AddTriangle m))
+              no-iterations)
+    (is (== (expected-vertex-count no-iterations)
+            (count (emf/eallcontents m 'Vertex))))
+    (is (== (expected-edge-count no-iterations)
+            (count (emf/ecrosspairs m))))))

@@ -75,7 +75,7 @@ generating for immediate use."}
   (let [val (emf/eget-raw src ref)]
     (if (instance? EList val)
       (.remove ^EList src val)
-      (when-not (identical? val trg)
+      (when (identical? val trg)
         (emf/eunset! src ref)))))
 
 ;;## get-type
