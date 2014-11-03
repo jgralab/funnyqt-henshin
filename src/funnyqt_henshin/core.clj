@@ -11,6 +11,7 @@
             [funnyqt.polyfns  :as poly]
             [funnyqt.utils    :as u])
   (:import (org.eclipse.emf.ecore EReference EAttribute EClass)
+           (org.eclipse.emf.common.util EList)
            (org.eclipse.emf.henshin.model.resource HenshinResourceSet)
            (org.eclipse.emf.henshin.model Action GraphElement)))
 
@@ -42,6 +43,10 @@ generating for immediate use."}
        :doc "True if the surrounding rule does isomorphic matching."}
   *isomorphic-matching*)
 
+(def ^{:dynamic true
+       :doc "True if we're currently transforming a multi-rule."}
+  *multi-rule* false)
+
 ;;## Utils
 
 (defn ^HenshinResourceSet henshin-resource-set [base-path]
@@ -59,6 +64,19 @@ generating for immediate use."}
                            #_(emf/eget rule :multiMappings))
                  :when (= (emf/eget m :origin) node)]
              (emf/eget m :image)))))
+
+(defn eset-or-add! [src ref trg]
+  (let [val (emf/eget-raw src ref)]
+    (if (instance? EList val)
+      (.add ^EList val trg)
+      (emf/eset! src ref trg))))
+
+(defn eunset-or-remove! [src ref trg]
+  (let [val (emf/eget-raw src ref)]
+    (if (instance? EList val)
+      (.remove ^EList src val)
+      (when-not (identical? val trg)
+        (emf/eunset! src ref)))))
 
 ;;## get-type
 
@@ -289,7 +307,7 @@ generating for immediate use."}
         dedges (set (filter #(g/has-type? % 'Edge) dges))
         cnodes (set (filter #(g/has-type? % 'Node) cges))
         cedges (set (filter #(g/has-type? % 'Edge) cges))]
-    ;; Create nodes and edges and set attributes
+    ;; Create nodes and edges and set attributes and refs
     `(let [~@(doall
               (mapcat (fn [cn]
                         `[~(*node-to-sym-map* cn) (emf/ecreate! ~*the-model-sym* '~(get-type cn))])
@@ -306,16 +324,18 @@ generating for immediate use."}
                 (concat cnodes (map mapping-image pnodes)))))
        ~@(doall
           (for [ce cedges]
-            `(emf/eadd! ~(*node-to-sym-map* (emf/eget ce :source))
-                        ~(get-type ce)
-                        ~(*node-to-sym-map* (emf/eget ce :target)))))
+            `(eset-or-add! ~(*node-to-sym-map* (emf/eget ce :source))
+                           ~(get-type ce)
+                           ~(*node-to-sym-map* (emf/eget ce :target)))))
        ;; Handle multi-rules
-       ~@(doall
-          (for [mrule (emf/eget rule :multiRules)]
-            (binding [*rule-param-syms* (map *node-to-sym-map*
-                                             (g/adjs mrule :mappings :origin))]
-              `(~(transform-rule mrule (gensym "multirule") true)
-                ~*the-model-sym* ~@*rule-param-syms*))))
+       ~@(binding [*multi-rule* true]
+           (doall
+            (for [mrule (emf/eget rule :multiRules)]
+              (binding [*rule-param-syms* (distinct
+                                           (map *node-to-sym-map*
+                                                (g/adjs mrule :multiMappings :origin)))]
+                `(~(transform-rule mrule (gensym "multirule") true)
+                  ~*the-model-sym* ~@*rule-param-syms*)))))
        ;; Delete nodes and edges
        ~@(doall
           (for [dn dnodes]
@@ -326,17 +346,17 @@ generating for immediate use."}
                                (dnodes (emf/eget de :target))))
                 :let [s (*node-to-sym-map* (emf/eget de :source))
                       t (*node-to-sym-map* (emf/eget de :target))]]
-            `(emf/eremove! ~s ~(get-type de) ~t))))))
+            `(eunset-or-remove! ~s ~(get-type de) ~t))))))
 
 (defn ^:private transform-rule [rule name is-multi]
   (binding [*isomorphic-matching* (emf/eget rule :injectiveMatching)]
-    `(~(if *print-to-file*
+    `(~(if (and (not *multi-rule*) *print-to-file*)
          `ip/defrule
          `ip/rule)
       ~name
        ~(let [opts {:pattern-expansion-context :emf}]
           (if is-multi
-            (assoc opts :forall true)
+            (assoc opts :forall true :sequential true)
             opts))
        [~*the-model-sym* ~@*rule-param-syms*]
        ~(graph-to-pattern-vec (emf/eget rule :lhs))
@@ -399,8 +419,6 @@ generating for immediate use."}
 (defn henshin-to-funnyqt-file [base-path henshin-model target-ns-sym file]
   (let [hrs (henshin-resource-set base-path)
         hm (module hrs henshin-model)
-        mm (resource hrs "bank.ecore")
-        hr (resource hrs "bank.henshin")
         top-units (emf/eget hm :rules)]
     (binding [*print-to-file* true
               *out* (io/writer file)]
@@ -421,8 +439,6 @@ generating for immediate use."}
   [base-path henshin-model target-ns-sym alias]
   (let [hrs (henshin-resource-set base-path)
         hm (module hrs henshin-model)
-        mm (resource hrs "bank.ecore")
-        hr (resource hrs "bank.henshin")
         top-units (emf/eget hm :rules)]
     `(do
        (create-ns '~target-ns-sym)

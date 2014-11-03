@@ -67,3 +67,21 @@
     ;; Now delete Mona's Account.
     (bank/deleteAllAccounts g "Mona Client")
     (is (= 0 (count (emf/eallcontents g 'Account))))))
+
+;;## The Sierpinski Example
+
+(henshin-to-funnyqt "examples/sierpinski/" "sierpinski.henshin"
+                    funnyqt-henshin.core-test.examples.sierpinski
+                    sierpinski)
+
+(henshin-to-funnyqt-file "examples/sierpinski/" "sierpinski.henshin"
+                         'funnyqt-henshin.core-test.examples.sierpinski
+                         "generated/sierpinski.clj")
+
+(emf/load-ecore-resource "examples/sierpinski/sierpinski.ecore")
+
+#_(deftest test-sierpinski
+    (let [m (emf/load-resource "examples/sierpinski/sierpinski-start.xmi")]
+      (viz/print-model m :gtk :exclude (emf/eallcontents m 'VertexContainer))
+      (sierpinski/AddTriangle m)
+      (viz/print-model m :gtk :exclude (emf/eallcontents m 'VertexContainer))))
