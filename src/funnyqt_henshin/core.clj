@@ -368,7 +368,8 @@ generating for immediate use."}
   If *print-to-file* is true, returns a standard definition form that can be
   printed to a file."
                      [unit]
-                     (println "Don't yet know how to handle unit" unit))
+                     (binding [*out* *err*]
+                       (println "Don't yet know how to handle unit" unit)))
 
 (poly/defpolyfn transform-unit Rule [rule]
   (binding [*node-to-sym-map* (node-to-id-map rule)
@@ -420,12 +421,14 @@ generating for immediate use."}
   (let [hrs (henshin-resource-set base-path)
         hm (module hrs henshin-model)
         top-units (emf/eget hm :rules)]
+    #_(viz/print-model hm "movies.pdf" :include (viz-includes-rule hm "findCouples" hrs))
     (binding [*print-to-file* true
               *out* (io/writer file)]
       (pp/with-pprint-dispatch pp/code-dispatch
         (pp/pprint `(ns ~target-ns-sym))
         (doseq [unit top-units
-                :let [def-form (transform-unit unit)]]
+                :let [def-form (transform-unit unit)]
+                :when def-form]
           (newline)
           (pp/pprint def-form)))
       (flush))))
@@ -443,7 +446,9 @@ generating for immediate use."}
     `(do
        (create-ns '~target-ns-sym)
        ~@(for [unit top-units
-               :let [[name definition] (transform-unit unit)]]
+               :let [result (transform-unit unit)]
+               :when result
+               :let [[name definition] result]]
            `(intern '~target-ns-sym '~name ~definition))
        ~(when alias
           `(alias '~alias '~target-ns-sym)))))

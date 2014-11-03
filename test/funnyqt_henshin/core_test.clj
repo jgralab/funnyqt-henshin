@@ -97,3 +97,13 @@
             (count (emf/eallcontents m 'Vertex))))
     (is (== (expected-edge-count no-iterations)
             (count (emf/ecrosspairs m))))))
+
+;;## The Movies Example
+
+(henshin-to-funnyqt "examples/movies/" "movies.henshin"
+                    funnyqt-henshin.core-test.examples.movies
+                    movies)
+
+(henshin-to-funnyqt-file "examples/movies/" "movies.henshin"
+                         'funnyqt-henshin.core-test.examples.movies
+                         "generated/movies.clj")
