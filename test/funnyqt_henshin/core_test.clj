@@ -107,3 +107,11 @@
 (henshin-to-funnyqt-file "examples/movies/" "movies.henshin"
                          'funnyqt-henshin.core-test.examples.movies
                          "generated/movies.clj")
+
+(emf/load-ecore-resource "examples/movies/movies.ecore")
+
+(deftest test-movies
+  (let [m (emf/new-resource)]
+    (movies/createExample m 10)
+    (movies/findCouples m)
+    (is (== 20 (count (emf/eallcontents m 'Couple))))))

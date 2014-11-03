@@ -354,13 +354,13 @@ generating for immediate use."}
          `ip/defrule
          `ip/rule)
       ~name
-       ~(let [opts {:pattern-expansion-context :emf}]
-          (if is-multi
-            (assoc opts :forall true :sequential true)
-            opts))
-       [~*the-model-sym* ~@*rule-param-syms*]
-       ~(graph-to-pattern-vec (emf/eget rule :lhs))
-       ~(generate-rule-body rule))))
+      ~(let [opts {:pattern-expansion-context :emf}]
+         (if is-multi
+           (assoc opts :forall true :sequential true)
+           opts))
+      [~*the-model-sym* ~@*rule-param-syms*]
+        ~(graph-to-pattern-vec (emf/eget rule :lhs))
+        ~(generate-rule-body rule))))
 
 (poly/declare-polyfn transform-unit
                      "Returns a vector [name val] that can be interned in some ns.
@@ -373,7 +373,6 @@ generating for immediate use."}
 
 (poly/defpolyfn transform-unit Rule [rule]
   (binding [*node-to-sym-map* (node-to-id-map rule)
-            *the-model-sym* (gensym "model")
             *rule-param-syms* (map #(symbol (emf/eget % :name))
                                    (emf/eget rule :parameters))
             *preserved-attr-syms* (set (map #(symbol (emf/eget % :value))
@@ -390,6 +389,37 @@ generating for immediate use."}
       (if *print-to-file*
         (transform-rule rule name false)
         [name (transform-rule rule name false)]))))
+
+(defn transform-simple-unit [unit params body-exps]
+  (let [name (emf/eget unit :name)
+        name (if (seq name)
+               (symbol name)
+               (u/errorf "Unit without name: %s" unit))
+        name (with-meta name {:arglists `(~params)})
+        the-fn `(~(if *print-to-file* `defn `fn)
+                 ~name
+                 ~params
+                 ~@body-exps)]
+    (if *print-to-file*
+      the-fn
+      [name the-fn])))
+
+(poly/defpolyfn transform-unit SequentialUnit [unit]
+  (transform-simple-unit
+   unit
+   [*the-model-sym*]  ;; TODO: Can a SeqUnit have params?
+   (mapv (fn make-subunit-call [su]
+           `(~(symbol (emf/eget su :name)) ~*the-model-sym*))
+         (emf/eget unit :subUnits))))
+
+(poly/defpolyfn transform-unit IteratedUnit [unit]
+  (let [iterations (q/the (map #(symbol (emf/eget % :name))
+                               (emf/eget unit :parameters)))]
+    (transform-simple-unit
+     unit
+     `[~*the-model-sym* ~iterations]
+     [`(dotimes [~'_ ~iterations]
+         (~(symbol (emf/eget (emf/eget unit :subUnit) :name)) ~*the-model-sym*))])))
 
 ;;## Visualization for debugging
 
@@ -421,8 +451,8 @@ generating for immediate use."}
   (let [hrs (henshin-resource-set base-path)
         hm (module hrs henshin-model)
         top-units (emf/eget hm :rules)]
-    #_(viz/print-model hm "movies.pdf" :include (viz-includes-rule hm "findCouples" hrs))
     (binding [*print-to-file* true
+              *the-model-sym* (gensym "model")
               *out* (io/writer file)]
       (pp/with-pprint-dispatch pp/code-dispatch
         (pp/pprint `(ns ~target-ns-sym))
@@ -442,13 +472,18 @@ generating for immediate use."}
   [base-path henshin-model target-ns-sym alias]
   (let [hrs (henshin-resource-set base-path)
         hm (module hrs henshin-model)
-        top-units (emf/eget hm :rules)]
-    `(do
-       (create-ns '~target-ns-sym)
-       ~@(for [unit top-units
-               :let [result (transform-unit unit)]
-               :when result
-               :let [[name definition] result]]
-           `(intern '~target-ns-sym '~name ~definition))
-       ~(when alias
-          `(alias '~alias '~target-ns-sym)))))
+        top-units (emf/eget hm :rules)
+        current-ns (ns-name *ns*)]
+    (binding [*the-model-sym* (gensym "model")]
+      `(do
+         (create-ns '~target-ns-sym)
+         (in-ns '~target-ns-sym)
+         ~@(doall
+            (for [unit top-units
+                  :let [result (transform-unit unit)]
+                  :when result
+                  :let [[name definition] result]]
+              `(intern '~target-ns-sym '~name ~definition)))
+         ~(when alias
+            `(alias '~alias '~target-ns-sym))
+         (in-ns '~current-ns)))))
