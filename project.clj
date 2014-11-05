@@ -1,4 +1,4 @@
-(defproject funnyqt-henshin "0.1.2"
+(defproject funnyqt-henshin "0.1.3"
   :description "A transformation from Henshin transformation models to FunnyQT
   transformations."
   :url "https://github.com/jgralab/funnyqt-henshin"
