@@ -459,6 +459,7 @@ generating for immediate use."}
         (doseq [unit top-units
                 :let [def-form (transform-unit unit)]
                 :when def-form]
+          (flush)
           (newline)
           (pp/pprint def-form)))
       (flush))))
@@ -469,21 +470,30 @@ generating for immediate use."}
   the relative path to the Henshing model.  `target-ns-sym` is the name of the
   target FunnyQT namespace in which the rules should be generated.  `alias` is
   a symbol being the alias to the target namespace which is then required."
-  [base-path henshin-model target-ns-sym alias]
-  (let [hrs (henshin-resource-set base-path)
-        hm (module hrs henshin-model)
-        top-units (emf/eget hm :rules)
-        current-ns (ns-name *ns*)]
-    (binding [*the-model-sym* (gensym "model")]
-      `(do
-         (create-ns '~target-ns-sym)
-         (in-ns '~target-ns-sym)
-         ~@(doall
-            (for [unit top-units
-                  :let [result (transform-unit unit)]
-                  :when result
-                  :let [[name definition] result]]
-              `(intern '~target-ns-sym '~name ~definition)))
-         ~(when alias
-            `(alias '~alias '~target-ns-sym))
-         (in-ns '~current-ns)))))
+  ([base-path henshin-model target-ns-sym]
+     `(henshin-to-funnyqt ~base-path ~henshin-model ~target-ns-sym nil))
+  ([base-path henshin-model target-ns-sym alias]
+     (let [hrs (henshin-resource-set base-path)
+           hm (module hrs henshin-model)
+           top-units (emf/eget hm :rules)
+           current-ns (ns-name *ns*)]
+       (binding [*the-model-sym* (gensym "model")]
+         `(do
+            (create-ns '~target-ns-sym)
+            (in-ns '~target-ns-sym)
+            ;; Forward declarations
+            ~@(doall
+               (for [unit top-units
+                     :let [name (symbol (emf/eget unit :name))]]
+                 `(declare ~name)))
+            ;; The rules and functions
+            ~@(doall
+               (for [unit top-units
+                     :let [result (transform-unit unit)]
+                     :when result
+                     :let [[name definition] result]]
+                 `(intern '~target-ns-sym '~name ~definition)))
+            (in-ns '~current-ns)
+            ;; Alias
+            ~(when alias
+               `(alias '~alias '~target-ns-sym)))))))
